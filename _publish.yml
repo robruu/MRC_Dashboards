@@ -1,0 +1,4 @@
+- source: interactive_viewing.qmd
+  quarto-pub:
+    - id: 26f3480f-4979-45d0-b04d-d85dc3ef1947
+      url: https://rruud.quarto.pub/interactive_viewing

@@ -1,0 +1,631 @@
+---
+title: "KPI checks May 01 2024 - July 2025"
+author: "3M3A"
+prefer-html: true
+format: html
+editor: visual
+code-tools: true
+---
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+
+
+options(scipen = 999)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+
+library(tidyverse)
+library(readr)
+library(kableExtra)
+library(janitor)
+library(openxlsx)
+
+
+
+demfile2023 <- read_rds("demfile2023.rds")
+demfile2024 <- read_rds("demfile2024.rds")
+demfileJan2025 <- read_rds("tx4_processed/householdsJan25.rds")
+demfileNew <- read_rds("demfileNEW.rds")
+
+demfileJan2025 <- demfileJan2025 %>% filter(date < "2025-06-26")
+
+demfileNew$SEC <- demfileNew$regionCluster <- NULL
+
+demfileJan2025 <- rbind(demfileJan2025, demfileNew)
+
+
+demfile <- demfileJan2025
+
+
+demfile <- demfile %>% filter(date >= "2024-05-01") %>% ungroup()
+
+
+```
+
+```{r include=FALSE}
+
+demfile$HHid[demfile$HHid == "167_2113"] <- "167"
+demfile$HHid[demfile$HHid == "168_2212"] <- "168"
+
+
+demfile$HHweight <- as.numeric(demfile$HHweight)
+demfile$weight <- as.numeric(demfile$weight)
+
+demfile$ID <- paste0(demfile$HHid, demfile$member)
+
+demfile$MonthYear <- floor_date(demfile$date, "month")
+
+demfile$MonthYear <- str_sub(demfile$MonthYear,1,7)
+
+
+
+
+hhlevel <- demfile %>%
+  select(everything()) %>%
+  group_by(date) %>%
+  filter(!duplicated(HHid)) %>% 
+  ungroup()
+
+
+
+```
+
+## HH tables
+
+```{r}
+
+hhlevel$saudiYN <- factor(
+  hhlevel$Nationality,
+  levels = c(
+    "Nationality - Saudi" ,
+    "Nationality - Arab Expats" ,
+    "Nationality - Non Arab Expats"
+  ),
+  labels = c("Saudi", "Non Saudi", "Non Saudi")
+)
+
+natTab <-
+  hhlevel %>%
+  select(MonthYear, date, saudiYN, HHweight) %>%
+  group_by(MonthYear, date, saudiYN) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHweight),
+           Efficiency = 1 / (1 + sd(HHweight / mean(HHweight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+natTab.agg <- natTab %>% 
+  select(MonthYear, saudiYN, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, saudiYN) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  natTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:6, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+
+regionTab <-
+  hhlevel %>%
+  select(MonthYear, date, Region, HHweight) %>%
+  group_by(MonthYear, date, Region) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHweight),
+           Efficiency = 1 / (1 + sd(HHweight / mean(HHweight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+      
+regionTab.agg <- regionTab %>% 
+  select(MonthYear, Region, `Sample size`, `Sum Weights`,  Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, Region) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  regionTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+
+dwellingTab <-
+  hhlevel %>%
+  select(MonthYear, date, HHDwelling, HHweight) %>%
+  group_by(MonthYear, date, HHDwelling) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHweight),
+           Efficiency = 1 / (1 + sd(HHweight / mean(HHweight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+dwellingTab.agg <- dwellingTab %>% 
+  select(MonthYear, HHDwelling, `Sample size`, `Sum Weights`, Efficiency, total_sample,  `Ideal sample`) %>% 
+  group_by(MonthYear, HHDwelling) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  dwellingTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+
+natTab3 <-
+  hhlevel %>%
+  select(MonthYear, date, Nationality, HHweight) %>%
+  group_by(MonthYear, date, Nationality) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHweight),
+           Efficiency = 1 / (1 + sd(HHweight / mean(HHweight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+natTab3.agg <- natTab3 %>% 
+  select(MonthYear, Nationality, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, Nationality) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  natTab3.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+
+HHsizeTab <-
+  hhlevel %>%
+  select(MonthYear, date, HHsize, HHweight) %>%
+  group_by(MonthYear, date, HHsize) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHweight),
+           Efficiency = 1 / (1 + sd(HHweight / mean(HHweight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup()  
+        
+      
+HHsizeTab.agg <- HHsizeTab %>% 
+  select(MonthYear, HHsize, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, HHsize) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  HHsizeTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+## Individual level
+
+```{r}
+
+
+genderTab <-
+  demfile %>%
+  select(MonthYear, date, Gender, weight) %>%
+  group_by(MonthYear, date, Gender) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(weight),
+           Efficiency = 1 / (1 + sd(weight / mean(weight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+genderTab.agg <- genderTab %>% 
+  select(MonthYear, Gender, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, Gender) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  genderTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+
+ageTab <-
+  demfile %>%
+  select(MonthYear, date, AgeGrp, weight) %>%
+  group_by(MonthYear, date, AgeGrp) %>%
+   summarise("Sample size" = n(),
+            "Sum Weights" = sum(weight),
+           Efficiency = 1 / (1 + sd(weight / mean(weight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+ageTab.agg <- ageTab %>% 
+  select(MonthYear, AgeGrp, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, AgeGrp) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  ageTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+demfile$saudiYN <- factor(demfile$Nationality, levels = c("Nationality - Saudi" , "Nationality - Arab Expats" ,  "Nationality - Non Arab Expats"), labels = c("Saudi", "Non Saudi", "Non Saudi"))
+
+SaudiTab <-
+  demfile %>%
+  select(MonthYear, date, saudiYN, weight) %>%
+  group_by(MonthYear, date, saudiYN) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(weight),
+           Efficiency = 1 / (1 + sd(weight / mean(weight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+SaudiTab.agg <- SaudiTab %>% 
+  select(MonthYear, saudiYN, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, saudiYN) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+
+
+```
+
+```{r}
+
+
+
+nat3Tab <-
+  demfile %>%
+  select(MonthYear, date, Nationality, weight) %>%
+  group_by(MonthYear, date, Nationality) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(weight),
+           Efficiency = 1 / (1 + sd(weight / mean(weight)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+nat3Tab.agg <- nat3Tab %>% 
+  select(MonthYear, Nationality, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, Nationality) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+
+
+```
+
+```{r}
+
+sheets <- list(
+"HH Nationality" = natTab.agg,
+"HH Region" = regionTab.agg,
+"HH Dwelling type" = dwellingTab.agg,
+"3 cut HH Nationality" = natTab3.agg,
+"HH size" = HHsizeTab.agg,
+"IND Gender" = genderTab.agg,
+"IND Age group" = ageTab.agg,
+"IND Saudi Y/N" = SaudiTab.agg,
+"IND Nationality" = nat3Tab.agg
+)
+
+write.xlsx(sheets, "May24_July25(v06).xlsx")
+
+
+```

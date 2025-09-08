@@ -1,0 +1,102 @@
+---
+title: "Continuity 28 of 30 days"
+format: html
+---
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(here)
+library(readr)
+
+householdsJan25 <- read_rds(here("tx4_processed", "householdsJan25.rds"))
+membersJan25 <- read_rds(here("tx4_processed", "membersJan25.rds"))
+HHMasterJan25 <- read_csv(
+  here("tx4_processed", "Jan'2025_HHM_Fam_data.csv"),
+  col_types = cols(
+    HHid = col_character(),
+    fam.loaddate = col_character(),
+    fam.installdate = col_character(),
+    fam.disinstdate = col_character()
+  )
+)
+
+```
+
+
+```{r}
+HHMasterJan25$fam.loaddate <- ymd(HHMasterJan25$fam.loaddate)
+HHMasterJan25$fam.installdate <- ymd(HHMasterJan25$fam.installdate)
+HHMasterJan25$fam.disinstdate <- ymd(HHMasterJan25$fam.disinstdate)
+```
+
+
+```{r}
+
+# Filter out households that have not been in the panel the full month - that have either joined or left the panel in January 
+
+HHMasterJan25 <- HHMasterJan25 |> 
+    select(HHid, fam.installdate, fam.disinstdate)
+
+
+householdsJan25 <- left_join(householdsJan25, HHMasterJan25)
+
+householdsJan25 <- householdsJan25 |> 
+    filter(fam.installdate < "2025-01-01" & (fam.disinstdate > "2025-01-31" | is.na(fam.disinstdate)))
+
+```
+
+
+```{r}
+
+# Count days the household is registered
+
+hh_days_count <- householdsJan25 |>
+  group_by(HHid) |>
+  summarize(
+    days_registered = n_distinct(file_date),
+    .groups = "drop"
+  ) |>
+  arrange(desc(days_registered))
+
+
+```
+
+
+```{r}
+# Create a summary of the distribution
+days_distribution <- hh_days_count |>
+  count(days_registered) |>
+  mutate(percentage = n / sum(n) * 100)
+
+# Create the plot with highlighted bars for 28-31 days
+ggplot(days_distribution, aes(x = days_registered, y = n)) +
+  geom_col(aes(fill = days_registered >= 28), alpha = 0.8) +
+  geom_text(aes(label = ifelse(n > 20, paste0(n, "\n(", round(percentage, 1), "%)"), "")), 
+            vjust = -0.5, size = 2) +
+  labs(
+    title = "Days Registered Distribution - January 2025",
+    subtitle = paste("Total households:", sum(days_distribution$n)),
+    x = "Days Registered",
+    y = "Households",
+    caption = "Orange: 28+ days"
+  ) +
+  scale_fill_manual(
+    values = c("FALSE" = "steelblue", "TRUE" = "orange"),
+    name = "Registration",
+    labels = c("< 28 days", "28-31 days")
+  ) +
+  scale_x_continuous(breaks = seq(0, 31, 5)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 10, face = "bold"),
+    plot.subtitle = element_text(size = 8),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 8),
+    legend.position = "bottom",
+    legend.text = element_text(size = 7),
+    legend.title = element_text(size = 7),
+    plot.caption = element_text(size = 7)
+  )
+```

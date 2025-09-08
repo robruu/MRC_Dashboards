@@ -1,0 +1,138 @@
+---
+title: "TV Viewing Patterns - January 2025"
+format: 
+  html:
+    embed-resources: true
+    standalone: true
+    theme: cosmo
+    toc: false
+---
+
+```{r}
+#| echo: false
+#| message: false  
+#| warning: false
+
+library(tidyverse)
+library(here)
+library(readr)
+library(plotly)
+library(crosstalk)
+library(htmltools)
+
+# Replace the data loading line with:
+viewingJan25 <- read_rds(here("viewingJan25_sample.rds"))
+
+viewingJan25 <- viewingJan25 |>
+  mutate(
+    view_date_parsed = ymd(view_date),
+    start_time_formatted = str_replace(start_time, "^(\\d{2})(\\d{2})(\\d{2})$", "\\1:\\2:\\3"),
+    end_time_formatted = str_replace(end_time, "^(\\d{2})(\\d{2})(\\d{2})$", "\\1:\\2:\\3"),
+    start_datetime = ymd_hms(paste(view_date, start_time_formatted)),
+    end_datetime = ymd_hms(paste(view_date, end_time_formatted))
+  ) 
+
+# Create minute summary with platform information (proper expansion approach)
+minute_summary_with_platform <- viewingJan25 |>
+  mutate(
+    end_datetime_fixed = if_else(
+      end_datetime < start_datetime, 
+      end_datetime + days(1), 
+      end_datetime
+    ),
+    # Add platform labels
+    platform_label = case_when(
+      V1 == "7012" ~ "STC TV",
+      V1 == "7015" ~ "NETFLIX",
+      V1 == "7017" ~ "SHAHID", 
+      V1 == "7027" ~ "YOUTUBE",
+      V1 == "7500" ~ "Other Players",
+      V1 == "0" ~ "Linear TV",
+      TRUE ~ V1
+    )
+  ) |>
+  filter(!is.na(start_datetime), !is.na(end_datetime_fixed)) |>
+  # Expand each session to cover all minutes it spans
+  rowwise() |>
+  mutate(
+    minute_list = list(seq(
+      floor_date(start_datetime, "minute"),
+      floor_date(end_datetime_fixed, "minute"),
+      by = "min"
+    ))
+  ) |>
+  unnest(minute_list) |>
+  ungroup() |>
+  mutate(
+    date = as.Date(minute_list),
+    minute_time = format(minute_list, "%H:%M")
+  ) |>
+  # Aggregate by platform, minute, and date
+  group_by(date, minute_time, platform_label) |>
+  summarise(
+    total_weight = sum(INDWgt, na.rm = TRUE),
+    viewing_sessions = n(),
+    .groups = "drop"
+  )
+
+# Create shared data object
+shared_minute_summary <- SharedData$new(minute_summary_with_platform, key = ~paste(platform_label, minute_time, date))
+
+# Create filters
+date_filter <- filter_select(
+  "date", 
+  "Select Dates:", 
+  shared_minute_summary, 
+  ~date,
+  multiple = TRUE
+)
+
+platform_filter <- filter_checkbox(
+  id = "platform",
+  label = "Platforms:", 
+  sharedData = shared_minute_summary,
+  group = ~platform_label,
+  inline = TRUE
+)
+
+# Create plot with separate traces for each date
+p <- shared_minute_summary |>
+  plot_ly(
+    x = ~minute_time, 
+    y = ~total_weight, 
+    color = ~platform_label,
+    linetype = ~as.factor(date),  # Add line type by date
+    type = 'scatter',
+    mode = 'lines',
+    line = list(width = 1),
+    hovertemplate = paste(
+      "<b>Platform:</b> %{color}<br>",
+      "<b>Date:</b> %{linetype}<br>",
+      "<b>Time:</b> %{x}<br>", 
+      "<b>Weight:</b> %{y:.2f}<br>",
+      "<extra></extra>"
+    )
+  ) |>
+  layout(
+    title = "TV Viewing Weight by Platform and Time - January 2025",
+    xaxis = list(title = "Time of Day"),
+    yaxis = list(title = "Total Viewing Weight"),
+    showlegend = FALSE
+  )
+
+# Display with both filters
+bscols(
+  widths = c(12, 12),
+  div(
+    h4("Filters"),
+    date_filter,
+    br(),
+    platform_filter
+  ),
+  p
+)
+
+```
+
+
+

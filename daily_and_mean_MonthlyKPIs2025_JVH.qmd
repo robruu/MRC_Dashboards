@@ -1,0 +1,750 @@
+---
+title: "KPI checks May 01 2024 - July 2025"
+author: "3M3A"
+prefer-html: true
+format: html
+editor: visual
+code-tools: true
+---
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+
+
+options(scipen = 999)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+
+library(tidyverse)
+library(readr)
+library(kableExtra)
+library(janitor)
+library(openxlsx)
+
+
+
+#Read in the Household and Members data for a month specified
+demfileJan2025 <- read_rds("tx4_processed/householdsJan25.rds")
+demfileMemJan2025 <- read_rds("tx4_processed/membersJan25.rds")
+demfileViewJan2025 <- read_rds("tx4_processed/viewingJan25.rds")
+
+demfile <- demfileJan2025
+
+```
+
+```{r include=FALSE}
+
+demfile$HHid[demfile$HHid == "167_2113"] <- "167"
+demfile$HHid[demfile$HHid == "168_2212"] <- "168"
+
+
+demfile$HHwgt <- as.numeric(demfile$HHwgt)
+demfileMemJan2025$INDWgt <- as.numeric(demfileMemJan2025$INDWgt)
+
+#demfile$ID <- paste0(demfile$HHid, demfileMemJan2025$member_id)
+
+demfile$file_date <- as.Date(demfile$file_date, format = "%Y%m%d")
+demfile$MonthYear <- floor_date(demfile$file_date, "month")
+demfile$MonthYear <- str_sub(demfile$MonthYear,1,7)
+
+demfileMemJan2025$file_date <- as.Date(demfileMemJan2025$file_date, format = "%Y%m%d")
+demfileMemJan2025$MonthYear <- floor_date(demfileMemJan2025$file_date, "month")
+demfileMemJan2025$MonthYear <- str_sub(demfileMemJan2025$MonthYear,1,7)
+
+demfileMemJan2025noGuests <- demfileMemJan2025 %>%
+  filter(!str_detect(member_id, "^[A-Z]+$"))
+
+hhlevel <- demfile %>%
+  select(everything()) %>%
+  group_by(file_date) %>%
+  filter(!duplicated(HHid)) %>% 
+  ungroup()
+
+
+#Breakdown Household Demographics based on HHdemos value
+hhlevel$HHwKidsUpTo14 <- str_sub(hhlevel$HHdemos, 1, 1)
+hhlevel$HHsize <- str_sub(hhlevel$HHdemos, 2, 2)
+hhlevel$HHRegion <- str_sub(hhlevel$HHdemos, 3, 3)
+hhlevel$HHIncome <- str_sub(hhlevel$HHdemos, 4,4)
+hhlevel$HHDwelling <- str_sub(hhlevel$HHdemos, 5,5)
+
+
+# Household variable labels
+hhlevel <- hhlevel |>
+  mutate(
+    HHwKidsUpTo14 = factor(HHwKidsUpTo14, 
+                          levels = c("1", "2"),
+                          labels = c("HH with Kids up to 14 - Yes", "HH with Kids up to 14 - No")),
+    
+    HHsize = factor(HHsize,
+                   levels = c("1", "2", "3", "4"),
+                   labels = c("Household Size - 1-2", "Household Size - 3-4", 
+                             "Household Size - 5-6", "Household Size - 7+")),
+    
+    HHRegion = factor(HHRegion,
+                     levels = c("1", "2", "3", "4", "5"),
+                     labels = c("Central Region Cities", "Ad-Dammam", "Eastern Region - Other Cities",
+                               "Western Region", "Northern + Southern Region")),
+    
+    HHIncome = factor(HHIncome,
+                     levels = c("1", "2", "3", "4"),
+                     labels = c("Household Income - High", "Household Income - Medium",
+                               "Household Income - Low", "Household Income - Not Disclosed")),
+    
+    HHDwelling = factor(HHDwelling,
+                       levels = c("1", "2", "3"),
+                       labels = c("Traditional house", "Villa", "Apartment"))
+  )
+
+ 
+
+  # Extract member demographics
+indMembersJan205 <- demfileMemJan2025 |>
+  mutate(
+    AgeGrp = str_sub(INDdemos, 1, 1),
+    Gender = str_sub(INDdemos, 2, 2),
+    Nationality = str_sub(INDdemos, 3, 3),
+    Region = str_sub(INDdemos, 4, 4),
+    IndHHwKidsUpTo14 = str_sub(INDdemos, 5, 5),
+    IndHHIncome = str_sub(INDdemos, 6, 6),
+    Education = str_sub(INDdemos, 7, 7),
+    Occupation = str_sub(INDdemos, 8, 8),
+    MaritalStatus = str_sub(INDdemos, 9, 9),
+    HOH = str_sub(INDdemos, 10, 10),
+    Guardian = str_sub(INDdemos, 11, 11)
+  )
+
+  # Member variable labels
+indMembersJan205 <- indMembersJan205 |>
+  mutate(
+    AgeGrp = factor(AgeGrp,
+                   levels = c("1", "2", "3", "4", "5", "6"),
+                   labels = c("Age Group 4-9", "Age Group 10-14", "Age Group 15-24",
+                             "Age Group 25-34", "Age Group 35-44", "Age Group 45+")),
+    
+    Gender = factor(Gender,
+                   levels = c("1", "2"),
+                   labels = c("Male", "Female")),
+    
+    Nationality = factor(Nationality,
+                        levels = c("1", "2", "3"),
+                        labels = c("Nationality - Saudi", "Nationality - Arab Expats", "Nationality - Non Arab Expats")),
+    
+    Region = factor(Region,
+                   levels = c("1", "2", "3", "4", "5"),
+                   labels = c("Central Region Cities", "Ad-Dammam", "Eastern Region Cities", 
+                             "Western Region Cities", "North + South Region Cities")),
+    
+    IndHHwKidsUpTo14 = factor(IndHHwKidsUpTo14,
+                             levels = c("1", "2"),
+                             labels = c("Ind HH with Kids up to 14 - Yes", "Ind HH with Kids up to 14 - No")),
+    
+    IndHHIncome = factor(IndHHIncome,
+                        levels = c("1", "2", "3", "4"),
+                        labels = c("Ind Household Income - High", "Ind Household Income - Medium",
+                                  "Ind Household Income - Low", "Ind Household Income - Not Disclosed")),
+    
+    Education = factor(Education,
+                      levels = c("1", "2", "3", "4"),
+                      labels = c("Education - Up to Elementary", "Education - Up to Secondary/Ugraduate",
+                                "Education - Bachelor/Grad/PGrad", "Under 14yo")),
+    
+    Occupation = factor(Occupation,
+                       levels = c("1", "2", "3", "4", "5", "6"),
+                       labels = c("Occupation - Employer", "Occupation - Employee", 
+                                 "Occupation - Not Working/Unemployed/Retired",
+                                 "Housewife", "Student", "0-14")),
+    
+    MaritalStatus = factor(MaritalStatus,
+                          levels = c("1", "2", "3", "4", "5"),
+                          labels = c("Marital Status - Single/Never Married", "Marital Status - Married",
+                                    "Marital Status - Divorced/Separated", "Marital Status - Widowed", "Under 14yo")),
+    
+    HOH = factor(HOH,
+                levels = c("1", "2"),
+                labels = c("Head of Household - Yes", "Head of Household - No")),
+    
+    Guardian = factor(Guardian,
+                     levels = c("1", "2"),
+                     labels = c("Guardian - Yes", "Guardian - No"))
+  )
+
+
+# Filter members to find heads of household,
+heads_of_household_clean <- indMembersJan205 %>%
+  filter(HOH == "Head of Household - Yes") %>%
+  distinct(HHid, .keep_all = TRUE) %>% # Ensures a 1:1 match for each ID
+  select(HHid, Nationality)
+
+# Now join HOH nationality to household data
+hhlevel_with_nationality <- hhlevel %>%
+  left_join(heads_of_household_clean, by = "HHid")
+
+```
+
+## HH tables
+
+```{r}
+#Household Nationality (Saudi/Non Saudi) Breakdown based on HOH nationality
+
+hhlevel_with_nationality$saudiYN <- factor(
+  hhlevel_with_nationality$Nationality,
+  levels = c(
+    "Nationality - Saudi" ,
+    "Nationality - Arab Expats" ,
+    "Nationality - Non Arab Expats"
+  ),
+  labels = c("Saudi", "Non Saudi", "Non Saudi")
+)
+
+natTab <-
+  hhlevel_with_nationality %>%
+  select(MonthYear, file_date, saudiYN, HHwgt) %>%
+  group_by(MonthYear, file_date, saudiYN) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHwgt),
+           Efficiency = 1 / (1 + sd(HHwgt / mean(HHwgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+natTab.agg <- natTab %>% 
+  select(MonthYear, saudiYN, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, saudiYN) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  natTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:6, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+#Household Region Breakdown
+
+regionTab <-
+  hhlevel %>%
+  select(MonthYear, file_date, HHRegion, HHwgt) %>%
+  group_by(MonthYear, file_date, HHRegion) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHwgt),
+           Efficiency = 1 / (1 + sd(HHwgt / mean(HHwgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+      
+regionTab.agg <- regionTab %>% 
+  select(MonthYear, HHRegion, `Sample size`, `Sum Weights`,  Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, HHRegion) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  regionTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+#Household Dwelling Breakdown
+
+dwellingTab <-
+  hhlevel %>%
+  select(MonthYear, file_date, HHDwelling, HHwgt) %>%
+  group_by(MonthYear, file_date, HHDwelling) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHwgt),
+           Efficiency = 1 / (1 + sd(HHwgt / mean(HHwgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+dwellingTab.agg <- dwellingTab %>% 
+  select(MonthYear, HHDwelling, `Sample size`, `Sum Weights`, Efficiency, total_sample,  `Ideal sample`) %>% 
+  group_by(MonthYear, HHDwelling) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  dwellingTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+#Household Nationality (Saudi/Arab/Non Arab) Breakdown based on HOH nationality
+
+natTab3 <-
+  hhlevel_with_nationality %>%
+  select(MonthYear, file_date, Nationality, HHwgt) %>%
+  group_by(MonthYear, file_date, Nationality) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHwgt),
+           Efficiency = 1 / (1 + sd(HHwgt / mean(HHwgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+natTab3.agg <- natTab3 %>% 
+  select(MonthYear, Nationality, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, Nationality) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  natTab3.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+#Household Size Breakdown
+
+HHsizeTab <-
+  hhlevel %>%
+  select(MonthYear, file_date, HHsize, HHwgt) %>%
+  group_by(MonthYear, file_date, HHsize) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(HHwgt),
+           Efficiency = 1 / (1 + sd(HHwgt / mean(HHwgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup()  
+        
+      
+HHsizeTab.agg <- HHsizeTab %>% 
+  select(MonthYear, HHsize, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, HHsize) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  HHsizeTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+## Individual level
+
+```{r}
+
+#Individual Members Breakdown by Gender
+
+genderTab <-
+  indMembersJan205 %>%
+  select(MonthYear, file_date, Gender, INDWgt) %>%
+  group_by(MonthYear, file_date, Gender) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(INDWgt),
+           Efficiency = 1 / (1 + sd(INDWgt / mean(INDWgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+genderTab.agg <- genderTab %>% 
+  select(MonthYear, Gender, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, Gender) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+  
+
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  genderTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+#Individual Members Breakdown by Gender
+
+ageTab <-
+  indMembersJan205 %>%
+  select(MonthYear, file_date, AgeGrp, INDWgt) %>%
+  group_by(MonthYear, file_date, AgeGrp) %>%
+   summarise("Sample size" = n(),
+            "Sum Weights" = sum(INDWgt),
+           Efficiency = 1 / (1 + sd(INDWgt / mean(INDWgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+        
+      
+ageTab.agg <- ageTab %>% 
+  select(MonthYear, AgeGrp, `Sample size`, `Sum Weights`,  Efficiency, total_sample, `Ideal sample`) %>% 
+  group_by(MonthYear, AgeGrp) %>% 
+   summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+```
+
+```{r eval=FALSE}
+
+
+kbl(
+  ageTab.agg,
+  booktabs = T,
+  digits = c(0, 0, 0, 0, 0, 2, 0, 0),
+  caption = "Monthly averages from daily calculation May 2024 - July 2025",
+  format.args = list(decimal.mark = ".", big.mark = ",")
+) %>%
+  kable_paper() %>%
+  column_spec(1, width = "5cm")  %>%
+  column_spec(2:8, width = "1.5cm")  %>%
+  kable_styling(
+    font_size = 9,
+    latex_options = c(
+      "repeat_header",
+      "HOLD_position",
+      position = "center",
+      repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+    )
+  )
+
+
+
+```
+
+```{r}
+
+#Individual Members Breakdown by SaudiYN
+
+indMembersJan205$saudiYN <- factor(indMembersJan205$Nationality, levels = c("Nationality - Saudi" , "Nationality - Arab Expats" ,  "Nationality - Non Arab Expats"), labels = c("Saudi", "Non Saudi", "Non Saudi"))
+
+SaudiTab <-
+  indMembersJan205 %>%
+  select(MonthYear, file_date, saudiYN, INDWgt) %>%
+  group_by(MonthYear, file_date, saudiYN) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(INDWgt),
+           Efficiency = 1 / (1 + sd(INDWgt / mean(INDWgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+SaudiTab.agg <- SaudiTab %>% 
+  select(MonthYear, saudiYN, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, saudiYN) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+
+
+```
+
+```{r}
+
+#Individual Members Breakdown by Nationality
+
+indNat3Tab <-
+  indMembersJan205 %>%
+  select(MonthYear, file_date, Nationality, INDWgt) %>%
+  group_by(MonthYear, file_date, Nationality) %>%
+  summarise("Sample size" = n(),
+            "Sum Weights" = sum(INDWgt),
+           Efficiency = 1 / (1 + sd(INDWgt / mean(INDWgt)) ^ 2)) %>% 
+   mutate(
+    total_weights = sum(`Sum Weights`, na.rm = TRUE),
+    total_sample = sum(`Sample size`, na.rm = TRUE),
+    `Ideal sample` = (`Sum Weights` / total_weights) * total_sample) %>% 
+  ungroup() 
+
+
+        
+      
+indNat3Tab.agg <- indNat3Tab %>% 
+  select(MonthYear, Nationality, `Sample size`, `Sum Weights`, Efficiency, total_sample,`Ideal sample`) %>% 
+  group_by(MonthYear, Nationality) %>% 
+  summarise(
+    "Sample size" = mean(`Sample size`),
+    "Sum Weights" = mean(`Sum Weights`),
+    Efficiency = mean(Efficiency),
+    overall_sample = mean(total_sample),
+    "Ideal sample" = mean(`Ideal sample`)
+  ) %>%
+  ungroup() %>% 
+  mutate(within6pct = 
+    case_when(`Sample size`/ `Ideal sample` >= .94 & `Sample size`/ `Ideal sample` <= 1.06 ~ 1,
+              TRUE ~ 0 ))
+  
+  
+
+
+
+```
+
+```{r}
+
+sheets <- list(
+"HH Nationality" = natTab.agg,
+"HH Region" = regionTab.agg,
+"HH Dwelling type" = dwellingTab.agg,
+"3 cut HH Nationality" = natTab3.agg,
+"HH size" = HHsizeTab.agg,
+"IND Gender" = genderTab.agg,
+"IND Age group" = ageTab.agg,
+"IND Saudi YorN" = SaudiTab.agg,
+"IND Nationality" = indNat3Tab.agg
+)
+
+write.xlsx(sheets, "household_members_demos_Jan2025_JVH.xlsx")
+
+
+```

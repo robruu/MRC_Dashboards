@@ -1,0 +1,348 @@
+---
+title: "KPI checks 2025"
+author: "3M3A"
+format: html
+editor: visual
+code-tools: true
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+options(scipen = 999)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(readr)
+library(kableExtra)
+library(janitor)
+library(openxlsx)
+library(lubridate)
+```
+
+```{r data-prep}
+# Function to load monthly data - make this flexible for different months
+load_monthly_data <- function(month_year = "Jan25") {
+  list(
+    households = read_rds(paste0(
+      "tx4_processed/households",
+      month_year,
+      ".rds"
+    )),
+    members = read_rds(paste0("tx4_processed/members", month_year, ".rds")),
+    viewing = read_rds(paste0("tx4_processed/viewing", month_year, ".rds"))
+  )
+}
+
+# Load data
+data <- load_monthly_data("Jan25")
+households_raw <- data$households
+members_raw <- data$members
+
+# Clean household IDs
+households_raw$HHid[households_raw$HHid == "167_2113"] <- "167"
+households_raw$HHid[households_raw$HHid == "168_2212"] <- "168"
+
+# Convert weights to numeric
+households_raw$HHwgt <- as.numeric(households_raw$HHwgt)
+members_raw$INDWgt <- as.numeric(members_raw$INDWgt)
+
+# Remove guest members
+members_raw <- members_raw %>%
+  filter(!str_detect(member_id, "^[A-Z]+$"))
+
+# Function to process dates and create month-year
+process_dates <- function(df) {
+  df |>
+    mutate(
+      file_date = as.Date(file_date, format = "%Y%m%d"),
+      MonthYear = str_sub(floor_date(file_date, "month"), 1, 7)
+    )
+}
+
+# Process both datasets
+households <- households_raw |> process_dates()
+members <- members_raw |> process_dates()
+```
+
+```{r demographic-processing}
+# Function to create labeled factors
+create_hh_demographics <- function(df) {
+  df |>
+    group_by(file_date) |>
+    filter(!duplicated(HHid)) |>
+    ungroup() |>
+    mutate(
+      HHwKidsUpTo14 = factor(
+        str_sub(HHdemos, 1, 1),
+        levels = c("1", "2"),
+        labels = c("HH with Kids up to 14 - Yes", "HH with Kids up to 14 - No")
+      ),
+
+      HHsize = factor(
+        str_sub(HHdemos, 2, 2),
+        levels = c("1", "2", "3", "4"),
+        labels = c(
+          "Household Size - 1-2",
+          "Household Size - 3-4",
+          "Household Size - 5-6",
+          "Household Size - 7+"
+        )
+      ),
+
+      HHRegion = factor(
+        str_sub(HHdemos, 3, 3),
+        levels = c("1", "2", "3", "4", "5"),
+        labels = c(
+          "Central Region Cities",
+          "Ad-Dammam",
+          "Eastern Region - Other Cities",
+          "Western Region",
+          "Northern + Southern Region"
+        )
+      ),
+
+      HHIncome = factor(
+        str_sub(HHdemos, 4, 4),
+        levels = c("1", "2", "3", "4"),
+        labels = c(
+          "Household Income - High",
+          "Household Income - Medium",
+          "Household Income - Low",
+          "Household Income - Not Disclosed"
+        )
+      ),
+
+      HHDwelling = factor(
+        str_sub(HHdemos, 5, 5),
+        levels = c("1", "2", "3"),
+        labels = c("Traditional house", "Villa", "Apartment")
+      )
+    )
+}
+
+# Function to create member demographics
+create_member_demographics <- function(df) {
+  df |>
+    mutate(
+      AgeGrp = factor(
+        str_sub(INDdemos, 1, 1),
+        levels = c("1", "2", "3", "4", "5", "6"),
+        labels = c(
+          "Age Group 4-9",
+          "Age Group 10-14",
+          "Age Group 15-24",
+          "Age Group 25-34",
+          "Age Group 35-44",
+          "Age Group 45+"
+        )
+      ),
+
+      Gender = factor(
+        str_sub(INDdemos, 2, 2),
+        levels = c("1", "2"),
+        labels = c("Male", "Female")
+      ),
+
+      Nationality = factor(
+        str_sub(INDdemos, 3, 3),
+        levels = c("1", "2", "3"),
+        labels = c(
+          "Nationality - Saudi",
+          "Nationality - Arab Expats",
+          "Nationality - Non Arab Expats"
+        )
+      ),
+
+      HOH = factor(
+        str_sub(INDdemos, 10, 10),
+        levels = c("1", "2"),
+        labels = c("Head of Household - Yes", "Head of Household - No")
+      )
+    ) |>
+    mutate(
+      saudiYN = factor(
+        Nationality,
+        levels = c(
+          "Nationality - Saudi",
+          "Nationality - Arab Expats",
+          "Nationality - Non Arab Expats"
+        ),
+        labels = c("Saudi", "Non Saudi", "Non Saudi")
+      )
+    )
+}
+
+# Apply transformations
+hh_processed <- create_hh_demographics(households)
+members_processed <- create_member_demographics(members)
+
+# Add HOH nationality to households
+hh_with_nationality <- hh_processed |>
+  left_join(
+    members_processed |>
+      filter(HOH == "Head of Household - Yes") |>
+      distinct(HHid, .keep_all = TRUE) |>
+      select(HHid, Nationality),
+    by = "HHid"
+  ) |>
+  mutate(
+    saudiYN = factor(
+      Nationality,
+      levels = c(
+        "Nationality - Saudi",
+        "Nationality - Arab Expats",
+        "Nationality - Non Arab Expats"
+      ),
+      labels = c("Saudi", "Non Saudi", "Non Saudi")
+    )
+  )
+```
+
+```{r analysis-functions}
+# Generic function to calculate KPI table
+calculate_kpi_table <- function(df, group_var, weight_var) {
+  df |>
+    select(MonthYear, file_date, {{ group_var }}, {{ weight_var }}) |>
+    group_by(MonthYear, file_date, {{ group_var }}) |>
+    summarise(
+      sample_size = n(),
+      sum_weights = sum({{ weight_var }}, na.rm = TRUE),
+      efficiency = 1 / (1 + sd({{ weight_var }} / mean({{ weight_var }}))^2),
+      .groups = "drop"
+    ) |>
+    group_by(MonthYear, file_date) |>
+    mutate(
+      total_weights = sum(sum_weights, na.rm = TRUE),
+      total_sample = sum(sample_size, na.rm = TRUE),
+      ideal_sample = (sum_weights / total_weights) * total_sample
+    ) |>
+    ungroup() |>
+    group_by(MonthYear, {{ group_var }}) |>
+    summarise(
+      sample_size = round(mean(sample_size), 0),           # No decimals
+      sum_weights = round(mean(sum_weights), 0),           # No decimals
+      efficiency = round(mean(efficiency), 2),              # 2 decimals
+      overall_sample = round(mean(total_sample), 0),       # No decimals
+      ideal_sample = round(mean(ideal_sample), 0),         # No decimals
+      .groups = "drop"
+    ) |>
+    mutate(
+      within_6pct = case_when(
+        sample_size / ideal_sample >= 0.94 &
+          sample_size / ideal_sample <= 1.06 ~ 1,
+        TRUE ~ 0
+      )
+    )
+}
+
+# Function to create standardized table
+create_kpi_table <- function(data, title) {
+  kbl(
+    data,
+    booktabs = TRUE,
+    digits = c(0, 0, 0, 0, 2, 0, 0, 0),
+    caption = paste(
+      "Monthly averages from daily calculation May 2024 - July 2025:",
+      title
+    ),
+    format.args = list(decimal.mark = ".", big.mark = ",")
+  ) |>
+    kable_paper() |>
+    column_spec(1, width = "5cm") |>
+    column_spec(2:8, width = "1.5cm") |>
+    kable_styling(
+      font_size = 9,
+      latex_options = c(
+        "repeat_header",
+        "HOLD_position",
+        position = "center",
+        repeat_header_continued = "\\textit{(Continued on Next Page...)}"
+      )
+    )
+}
+```
+
+```{r calculate-all-tables}
+# Calculate all KPI tables
+kpi_tables <- list(
+  hh_nationality = calculate_kpi_table(hh_with_nationality, saudiYN, HHwgt),
+  hh_region = calculate_kpi_table(hh_processed, HHRegion, HHwgt),
+  hh_dwelling = calculate_kpi_table(hh_processed, HHDwelling, HHwgt),
+  hh_nationality_3cut = calculate_kpi_table(
+    hh_with_nationality,
+    Nationality,
+    HHwgt
+  ),
+  hh_size = calculate_kpi_table(hh_processed, HHsize, HHwgt),
+  ind_gender = calculate_kpi_table(members_processed, Gender, INDWgt),
+  ind_age = calculate_kpi_table(members_processed, AgeGrp, INDWgt),
+  ind_saudi = calculate_kpi_table(members_processed, saudiYN, INDWgt),
+  ind_nationality = calculate_kpi_table(members_processed, Nationality, INDWgt)
+)
+
+# Make the rounding more explicit by converting to integers where appropriate
+kpi_tables <- map(kpi_tables, ~{
+  .x |>
+    mutate(
+      sample_size = as.integer(round(sample_size, 0)),
+      sum_weights = as.integer(round(sum_weights, 0)),
+      efficiency = round(efficiency, 2),
+      overall_sample = as.integer(round(overall_sample, 0)),
+      ideal_sample = as.integer(round(ideal_sample, 0)),
+      within_6pct = as.integer(round(within_6pct, 0))
+    )
+})
+```
+
+## Household Level Tables
+
+```{r hh-tables, results='asis'}
+# Display household tables
+cat("### Household Nationality (Saudi/Non-Saudi)\n")
+create_kpi_table(kpi_tables$hh_nationality, "Household Nationality")
+
+cat("### Household Region\n")
+create_kpi_table(kpi_tables$hh_region, "Household Region")
+
+cat("### Household Dwelling Type\n")
+create_kpi_table(kpi_tables$hh_dwelling, "Household Dwelling")
+
+cat("### Household Nationality (3-way)\n")
+create_kpi_table(kpi_tables$hh_nationality_3cut, "Household Nationality 3-way")
+
+cat("### Household Size\n")
+create_kpi_table(kpi_tables$hh_size, "Household Size")
+```
+
+## Individual Level Tables
+
+```{r ind-tables, results='asis'}
+# Display individual tables
+cat("### Individual Gender\n")
+create_kpi_table(kpi_tables$ind_gender, "Individual Gender")
+
+cat("### Individual Age Groups\n")
+create_kpi_table(kpi_tables$ind_age, "Individual Age")
+
+cat("### Individual Saudi/Non-Saudi\n")
+create_kpi_table(kpi_tables$ind_saudi, "Individual Saudi")
+
+cat("### Individual Nationality\n")
+create_kpi_table(kpi_tables$ind_nationality, "Individual Nationality")
+```
+
+```{r export-data}
+# Export to Excel
+excel_sheets <- list(
+  "HH Nationality" = kpi_tables$hh_nationality,
+  "HH Region" = kpi_tables$hh_region,
+  "HH Dwelling type" = kpi_tables$hh_dwelling,
+  "3 cut HH Nationality" = kpi_tables$hh_nationality_3cut,
+  "HH size" = kpi_tables$hh_size,
+  "IND Gender" = kpi_tables$ind_gender,
+  "IND Age group" = kpi_tables$ind_age,
+  "IND Saudi YorN" = kpi_tables$ind_saudi,
+  "IND Nationality" = kpi_tables$ind_nationality
+)
+
+write.xlsx(excel_sheets, "household_members_demos_Mar2025_JVH.xlsx")
+```
